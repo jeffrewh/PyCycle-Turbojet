@@ -11,6 +11,10 @@ class LoiteringMunitionEngine:
         self.eta_c = 0.82      # Small-scale compressor polytropic efficiency
         self.eta_t = 0.85      # Small-scale turbine efficiency
 
+        # --- Physical Hardware Constraints ---
+        self.D_wheel = 0.080   # 80mm Impeller Diameter dictated by 5-inch launch tube
+        self.psi = 0.935        # Assumed blade work coefficient (loading factor)
+
     def run_cycle(self, opr, tit):
         # 1. Compression (Station 2 to 3)
         T3_ideal = self.T_amb * (opr ** ((self.gamma - 1) / self.gamma))
@@ -42,6 +46,25 @@ class LoiteringMunitionEngine:
         f_sfc = (f / specific_thrust) * 3600.0  # TSFC converted to kg/N/hr
         
         return specific_thrust, f_sfc, opr
+    
+    def calculate_hardware_rpm(self, chosen_opr):
+        """Bridges 0D Thermodynamics to 3D Physical Hardware Limits"""
+        # Calculate ideal compressor exit temperature for the chosen design point
+        T3_ideal = self.T_amb * (chosen_opr ** ((self.gamma - 1) / self.gamma))
+        T3 = self.T_amb + (T3_ideal - self.T_amb) / self.eta_c
+        
+        # Specific work required by the compressor (J/kg)
+        w_comp = self.cp * (T3 - self.T_amb)
+        
+        # Euler Turbomachinery Relationship: w_comp = psi * U_tip^2
+        # Solve for required linear blade tip speed (m/s)
+        U_tip = np.sqrt(w_comp / self.psi)
+        
+        # Convert linear tip speed to rotational velocity (RPM) based on wheel diameter
+        # RPM = (U_tip * 60) / (pi * D)
+        rpm = (U_tip * 60) / (np.pi * self.D_wheel)
+        
+        return U_tip, rpm
 
 # --- Initialize Engine Architecture ---
 engine = LoiteringMunitionEngine()
@@ -105,4 +128,27 @@ ax.format_coord = format_coord
 
 ax.legend(loc='upper right', frameon=True, shadow=False)
 plt.tight_layout()
+
+print("--> Close the plot window to proceed to Phase 2 (Hardware Translation)...")
 plt.show()
+	
+# --- PHASE 2: HARDWARE INTERACTIVE PROMPT ---
+print("\n" + "="*60)
+print("             PHASE 2: THERMO-TO-MECHANICAL TRANSLATION          ")
+print("="*60)
+try:
+    user_input = input(f"Enter target Overall Pressure Ratio (Suggested: 4.0 for engineering margin): ")
+    chosen_opr = float(user_input)
+except ValueError:
+    print("Invalid input. Defaulting to optimized target OPR = 4.0")
+    chosen_opr = 4.0
+# Run hardware translation math
+tip_speed, required_rpm = engine.calculate_hardware_rpm(chosen_opr)
+print("\n[SYSTEM CALCULATIONS]:")
+print(f"  Chosen Engine OPR   : {chosen_opr:.2f}")
+print(f"  Impeller Diameter   : {engine.D_wheel * 1000:.1f} mm [Launch Tube Constrained]")
+print(f"  Calculated Tip Speed: {tip_speed:.1f} m/s (Mach {tip_speed/340.3:.2f} subsonic fluid profile)")
+print(f"  REQUIRED ROTOR SPEED: {required_rpm:,.0f} RPM")
+print("="*60)
+print(f"--> Input {required_rpm:,.0f} RPM into your Ansys structural velocity boundary condition to verify yield strength margin.")
+print("="*60)
